@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error - Auth Gateway</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="logo error-icon">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 9V13M12 17H12.01M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <h1><%= message %></h1>
+            
+            <% if (error && error.stack && process.env.NODE_ENV === 'development') { %>
+                <pre class="error-stack"><%= error.stack %></pre>
+            <% } %>
+            
+            <div class="actions">
+                <a href="/" class="btn btn-primary">
+                    Go Home
+                </a>
+            </div>
+        </div>
+        
+        <footer>
+            <p>Secure authentication powered by JWT</p>
+        </footer>
+    </div>
+</body>
+</html>

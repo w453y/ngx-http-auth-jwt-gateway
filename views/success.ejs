@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Success - Auth Gateway</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="logo success-icon">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                    <path d="M8 12L11 15L16 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <h1>Authentication Successful</h1>
+            <p class="subtitle">You are now signed in</p>
+            
+            <div class="user-info">
+                <% if (user.photo) { %>
+                    <img src="<%= user.photo %>" alt="Profile" class="user-photo">
+                <% } %>
+                <div class="user-details">
+                    <strong><%= user.displayName %></strong>
+                    <span><%= user.email %></span>
+                </div>
+            </div>
+            
+            <div class="info-box">
+                <p><strong>Subset:</strong> <%= subset %></p>
+                <p><strong>Cookies set:</strong></p>
+                <ul class="cookie-list">
+                    <% cookiesSet.forEach(function(cookie) { %>
+                        <li><code><%= cookie %></code></li>
+                    <% }); %>
+                </ul>
+            </div>
+            
+            <div class="actions">
+                <a href="/logout" class="btn btn-secondary">
+                    Sign Out
+                </a>
+            </div>
+        </div>
+        
+        <footer>
+            <p>Secure authentication powered by JWT</p>
+        </footer>
+    </div>
+</body>
+</html>
