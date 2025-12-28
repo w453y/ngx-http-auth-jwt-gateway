@@ -84,7 +84,7 @@ function parseAdditionalClaims(claimsStr) {
         claims[key] = true;
       } else if (value === 'false') {
         claims[key] = false;
-      } else if (!isNaN(value) && value !== '') {
+      } else if (value.trim() !== '' && !isNaN(Number(value))) {
         claims[key] = Number(value);
       } else {
         claims[key] = value;
@@ -113,9 +113,14 @@ function getCookieConfigForSubset(subsetName) {
     // Replace hyphens with underscores for env var lookup since env vars can't have hyphens
     const envCookieName = cookieName.replace(/-/g, '_');
     
+    const secret = process.env[`JWT_SECRET_${envCookieName}`] || process.env.JWT_DEFAULT_SECRET;
+    if (!secret) {
+      throw new Error(`JWT secret not configured for cookie "${cookieName}". Set JWT_SECRET_${envCookieName} or JWT_DEFAULT_SECRET environment variable.`);
+    }
+    
     return {
       cookieName: cookieName,
-      secret: process.env[`JWT_SECRET_${envCookieName}`] || process.env.JWT_DEFAULT_SECRET || 'default-secret-change-me',
+      secret: secret,
       algorithm: process.env[`JWT_ALGORITHM_${envCookieName}`] || process.env.JWT_DEFAULT_ALGORITHM || 'HS256',
       expiresIn: process.env[`JWT_EXPIRES_${envCookieName}`] || process.env.JWT_DEFAULT_EXPIRES || '24h',
       domain: process.env[`JWT_DOMAIN_${envCookieName}`] || process.env.JWT_DEFAULT_DOMAIN,

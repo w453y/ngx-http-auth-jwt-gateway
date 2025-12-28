@@ -287,6 +287,7 @@ docker run -d \
 4. **HttpOnly Cookies**: Keep `JWT_HTTPONLY` enabled to prevent XSS attacks
 5. **SameSite Attribute**: Use `strict` or `lax` to prevent CSRF attacks
 6. **Session Secret**: Use a strong, unique session secret
+7. **Rate Limiting**: Built-in rate limiting protects against brute force attacks (20 auth attempts / 15 min, 100 general requests / 15 min)
 
 ## Troubleshooting
 

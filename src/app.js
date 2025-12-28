@@ -9,6 +9,7 @@ const cookieParser = require('cookie-parser');
 const flash = require('connect-flash');
 const path = require('path');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 
 const { parseSubsets, getUserSubset, getCookieConfigForSubset } = require('./config/subsets');
 
@@ -17,6 +18,27 @@ const app = express();
 // View engine setup
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '../views'));
+
+// Trust proxy for rate limiting behind reverse proxy
+app.set('trust proxy', 1);
+
+// Rate limiting configuration
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again after 15 minutes',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Stricter rate limit for auth endpoints
+const strictAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // Limit each IP to 20 auth attempts per windowMs
+  message: 'Too many authentication attempts, please try again after 15 minutes',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Middleware
 app.use(cors({
@@ -28,9 +50,17 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '../public')));
 
+// Apply general rate limiting to all routes
+app.use(authLimiter);
+
 // Session configuration
+if (!process.env.SESSION_SECRET) {
+  console.error('ERROR: SESSION_SECRET environment variable is required');
+  process.exit(1);
+}
+
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-session-secret-change-in-production',
+  secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -93,7 +123,7 @@ const storeReturnUrl = (req, res, next) => {
 };
 
 // Home / Login page
-app.get('/', storeReturnUrl, (req, res) => {
+app.get('/', strictAuthLimiter, storeReturnUrl, (req, res) => {
   // If user is already logged in, process cookies and redirect
   if (req.isAuthenticated()) {
     return res.redirect('/process-auth');
@@ -107,7 +137,7 @@ app.get('/', storeReturnUrl, (req, res) => {
 });
 
 // Login page (alternative route)
-app.get('/login', storeReturnUrl, (req, res) => {
+app.get('/login', strictAuthLimiter, storeReturnUrl, (req, res) => {
   if (req.isAuthenticated()) {
     return res.redirect('/process-auth');
   }
@@ -120,7 +150,7 @@ app.get('/login', storeReturnUrl, (req, res) => {
 });
 
 // Google OAuth routes
-app.get('/auth/google', storeReturnUrl, (req, res, next) => {
+app.get('/auth/google', strictAuthLimiter, storeReturnUrl, (req, res, next) => {
   const authOptions = {
     scope: ['profile', 'email'],
     prompt: 'select_account' // Always show account selection
@@ -129,7 +159,7 @@ app.get('/auth/google', storeReturnUrl, (req, res, next) => {
   passport.authenticate('google', authOptions)(req, res, next);
 });
 
-app.get('/auth/google/callback',
+app.get('/auth/google/callback', strictAuthLimiter,
   passport.authenticate('google', { 
     failureRedirect: '/login',
     failureFlash: 'Authentication failed. Please try again.'
@@ -140,7 +170,7 @@ app.get('/auth/google/callback',
 );
 
 // Process authentication and set cookies
-app.get('/process-auth', (req, res) => {
+app.get('/process-auth', strictAuthLimiter, (req, res) => {
   if (!req.isAuthenticated()) {
     return res.redirect('/login');
   }
