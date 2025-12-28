@@ -23,8 +23,12 @@
             </div>
             
             <p class="description">
-                The email address you signed in with is not authorized to access this application. 
-                Please contact your administrator if you believe this is an error.
+                The email address you signed in with is not authorized to access this application.
+                <% if (typeof supportEmail !== 'undefined' && supportEmail) { %>
+                    Please contact your administrator at <a href="mailto:<%= supportEmail %>"><%= supportEmail %></a> for access.
+                <% } else { %>
+                    Please contact your administrator if you believe this is an error.
+                <% } %>
             </p>
             
             <div class="actions">

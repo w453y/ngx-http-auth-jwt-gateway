@@ -57,7 +57,7 @@ function parseSubsets() {
 function getUserSubset(email, subsets) {
   const normalizedEmail = email.toLowerCase();
   
-  for (const [name, subset] of Object.entries(subsets)) {
+  for (const subset of Object.values(subsets)) {
     if (subset.emails.includes(normalizedEmail)) {
       return subset;
     }
@@ -95,6 +95,24 @@ function parseAdditionalClaims(claimsStr) {
   return claims;
 }
 
+// Supported JWT algorithms
+const SUPPORTED_ALGORITHMS = ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512', 'PS256', 'PS384', 'PS512'];
+
+/**
+ * Parse boolean from environment variable with robust handling
+ * @param {string} value - The environment variable value
+ * @param {boolean} defaultValue - Default value if not set
+ * @returns {boolean} Parsed boolean value
+ */
+function parseBoolean(value, defaultValue = true) {
+  if (value === undefined || value === null || value === '') {
+    return defaultValue;
+  }
+  const normalizedValue = String(value).toLowerCase().trim();
+  const falsyValues = ['false', '0', 'no', 'off', 'disabled'];
+  return !falsyValues.includes(normalizedValue);
+}
+
 /**
  * Get cookie configuration for a specific subset
  * @param {string} subsetName - Name of the subset
@@ -110,7 +128,7 @@ function getCookieConfigForSubset(subsetName) {
   }
   
   return cookieNames.map(cookieName => {
-    // Replace hyphens with underscores for env var lookup since env vars can't have hyphens
+    // Replace hyphens with underscores for env var lookup to match our JWT_* naming convention
     const envCookieName = cookieName.replace(/-/g, '_');
     
     const secret = process.env[`JWT_SECRET_${envCookieName}`] || process.env.JWT_DEFAULT_SECRET;
@@ -118,14 +136,20 @@ function getCookieConfigForSubset(subsetName) {
       throw new Error(`JWT secret not configured for cookie "${cookieName}". Set JWT_SECRET_${envCookieName} or JWT_DEFAULT_SECRET environment variable.`);
     }
     
+    // Validate algorithm
+    const algorithm = process.env[`JWT_ALGORITHM_${envCookieName}`] || process.env.JWT_DEFAULT_ALGORITHM || 'HS256';
+    if (!SUPPORTED_ALGORITHMS.includes(algorithm)) {
+      throw new Error(`Invalid JWT algorithm "${algorithm}" for cookie "${cookieName}". Supported algorithms: ${SUPPORTED_ALGORITHMS.join(', ')}`);
+    }
+    
     return {
       cookieName: cookieName,
       secret: secret,
-      algorithm: process.env[`JWT_ALGORITHM_${envCookieName}`] || process.env.JWT_DEFAULT_ALGORITHM || 'HS256',
+      algorithm: algorithm,
       expiresIn: process.env[`JWT_EXPIRES_${envCookieName}`] || process.env.JWT_DEFAULT_EXPIRES || '24h',
       domain: process.env[`JWT_DOMAIN_${envCookieName}`] || process.env.JWT_DEFAULT_DOMAIN,
       path: process.env[`JWT_PATH_${envCookieName}`] || '/',
-      httpOnly: process.env[`JWT_HTTPONLY_${envCookieName}`] !== 'false',
+      httpOnly: parseBoolean(process.env[`JWT_HTTPONLY_${envCookieName}`], true),
       maxAge: process.env[`JWT_MAXAGE_${envCookieName}`] ? parseInt(process.env[`JWT_MAXAGE_${envCookieName}`], 10) : 24 * 60 * 60 * 1000,
       sameSite: process.env[`JWT_SAMESITE_${envCookieName}`] || 'lax',
       additionalClaims: parseAdditionalClaims(process.env[`JWT_CLAIMS_${envCookieName}`])
@@ -141,12 +165,34 @@ function validateConfiguration() {
   const errors = [];
   const warnings = [];
   
+  // Placeholder values that should not be used in production
+  const placeholderPatterns = [
+    /^your-/i,
+    /^example-/i,
+    /^placeholder/i,
+    /^change-me/i,
+    /^test-/i
+  ];
+  
+  const isPlaceholder = (value) => {
+    if (!value) return false;
+    return placeholderPatterns.some(pattern => pattern.test(value.trim()));
+  };
+  
   // Check for required environment variables
-  if (!process.env.GOOGLE_CLIENT_ID) {
+  const googleClientId = process.env.GOOGLE_CLIENT_ID ? process.env.GOOGLE_CLIENT_ID.trim() : '';
+  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET ? process.env.GOOGLE_CLIENT_SECRET.trim() : '';
+  
+  if (!googleClientId) {
     errors.push('GOOGLE_CLIENT_ID is required');
+  } else if (isPlaceholder(googleClientId)) {
+    errors.push('GOOGLE_CLIENT_ID is set to a placeholder value and must be replaced with a valid client ID');
   }
-  if (!process.env.GOOGLE_CLIENT_SECRET) {
+  
+  if (!googleClientSecret) {
     errors.push('GOOGLE_CLIENT_SECRET is required');
+  } else if (isPlaceholder(googleClientSecret)) {
+    errors.push('GOOGLE_CLIENT_SECRET is set to a placeholder value and must be replaced with a valid client secret');
   }
   
   // Check for subsets
@@ -178,6 +224,8 @@ function validateConfiguration() {
   // Check session secret
   if (!process.env.SESSION_SECRET) {
     warnings.push('SESSION_SECRET is not configured. Using default value.');
+  } else if (isPlaceholder(process.env.SESSION_SECRET)) {
+    warnings.push('SESSION_SECRET appears to be a placeholder value. Please use a secure random secret.');
   }
   
   return {

@@ -38,9 +38,17 @@ http {
     # ============================================
     # These settings apply to all servers unless overridden
     
-    # The JWT secret key in binhex format
-    # Generate with: openssl rand -hex 32
-    # This should match the JWT_SECRET in your auth gateway .env
+    # The JWT secret key in hex (binhex) format, NOT the raw string.
+    # 
+    # Option 1: Generate a new random hex secret (recommended):
+    #   openssl rand -hex 32
+    # 
+    # Option 2: If you have an existing JWT_SECRET string in your auth gateway .env,
+    # convert it to hex for NGINX:
+    #   printf '%s' "your-jwt-secret" | xxd -p | tr -d '\n'
+    # 
+    # Then copy the resulting hex string into auth_jwt_key below.
+    # IMPORTANT: The auth gateway and NGINX must use the same secret!
     auth_jwt_key 'your-hex-encoded-secret-key';
     
     # Use HS256 algorithm (must match auth gateway)

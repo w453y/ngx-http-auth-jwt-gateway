@@ -40,9 +40,28 @@ const strictAuthLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Middleware
+// CORS configuration - restrict origins in production
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : [];
+
 app.use(cors({
-  origin: true,
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // In development, allow all origins
+    if (process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    
+    // In production, check against allowed origins
+    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
 app.use(express.json());
@@ -114,10 +133,51 @@ app.use((req, res, next) => {
   next();
 });
 
-// Store return_url in session
+// Validate return_url to prevent open redirect attacks
+const isValidReturnUrl = (url) => {
+  if (!url) return false;
+  
+  // Get allowed domains from environment
+  const allowedDomains = process.env.ALLOWED_REDIRECT_DOMAINS 
+    ? process.env.ALLOWED_REDIRECT_DOMAINS.split(',').map(d => d.trim().toLowerCase())
+    : [];
+  
+  try {
+    const parsedUrl = new URL(url);
+    
+    // Only allow http and https protocols
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      return false;
+    }
+    
+    // If no allowed domains configured, allow all (for development)
+    if (allowedDomains.length === 0 && process.env.NODE_ENV !== 'production') {
+      return true;
+    }
+    
+    // Check if the domain is in the allowed list
+    const hostname = parsedUrl.hostname.toLowerCase();
+    return allowedDomains.some(domain => {
+      // Support wildcard subdomains (e.g., .example.com matches sub.example.com)
+      if (domain.startsWith('.')) {
+        return hostname === domain.slice(1) || hostname.endsWith(domain);
+      }
+      return hostname === domain;
+    });
+  } catch {
+    // If URL parsing fails, it might be a relative URL - allow it
+    return url.startsWith('/');
+  }
+};
+
+// Store return_url in session (with validation)
 const storeReturnUrl = (req, res, next) => {
   if (req.query.return_url) {
-    req.session.return_url = req.query.return_url;
+    if (isValidReturnUrl(req.query.return_url)) {
+      req.session.return_url = req.query.return_url;
+    } else {
+      console.warn(`Invalid return_url rejected: ${req.query.return_url}`);
+    }
   }
   next();
 };
@@ -181,10 +241,15 @@ app.get('/process-auth', strictAuthLimiter, (req, res) => {
   const userSubset = getUserSubset(email, subsets);
   
   if (!userSubset) {
-    req.flash('error', 'This email is not authorized to access this application.');
+    const supportEmail = process.env.SUPPORT_EMAIL || '';
+    const errorMsg = supportEmail 
+      ? `This email is not authorized. Contact your administrator at ${supportEmail} for access.`
+      : 'This email is not authorized. Please contact your administrator for access.';
+    req.flash('error', errorMsg);
     return res.render('unauthorized', {
       email: email,
-      returnUrl: req.session.return_url || ''
+      returnUrl: req.session.return_url || '',
+      supportEmail: supportEmail
     });
   }
 
@@ -262,10 +327,16 @@ app.get('/try-different-account', (req, res) => {
 
 // Logout
 app.get('/logout', (req, res) => {
-  // Clear all JWT cookies
-  const allCookieNames = getAllCookieNames();
-  allCookieNames.forEach(cookieName => {
-    res.clearCookie(cookieName);
+  // Clear all JWT cookies with proper options
+  const allCookieConfigs = getAllCookieConfigs();
+  allCookieConfigs.forEach(config => {
+    const clearOptions = {
+      path: config.path || '/',
+    };
+    if (config.domain) {
+      clearOptions.domain = config.domain;
+    }
+    res.clearCookie(config.cookieName, clearOptions);
   });
 
   req.logout((err) => {
@@ -273,12 +344,18 @@ app.get('/logout', (req, res) => {
       console.error('Logout error:', err);
     }
     const returnUrl = req.session.return_url || req.query.return_url;
-    req.session.destroy();
     
-    if (returnUrl) {
-      return res.redirect(returnUrl);
-    }
-    res.redirect('/');
+    // Properly destroy session and wait for completion
+    req.session.destroy((destroyErr) => {
+      if (destroyErr) {
+        console.error('Session destroy error:', destroyErr);
+      }
+      
+      if (returnUrl && isValidReturnUrl(returnUrl)) {
+        return res.redirect(returnUrl);
+      }
+      res.redirect('/');
+    });
   });
 });
 
@@ -287,9 +364,9 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Helper function to get all configured cookie names
-function getAllCookieNames() {
-  const cookieNames = new Set();
+// Helper function to get all configured cookie names with their options
+function getAllCookieConfigs() {
+  const cookieConfigs = [];
   const cookieConfigPrefix = 'SUBSET_';
   const cookieConfigSuffix = '_COOKIES';
   
@@ -298,21 +375,37 @@ function getAllCookieNames() {
       const cookiesStr = process.env[key];
       if (cookiesStr) {
         cookiesStr.split(',').forEach(cookieName => {
-          cookieNames.add(cookieName.trim());
+          const name = cookieName.trim();
+          const envCookieName = name.replace(/-/g, '_');
+          cookieConfigs.push({
+            cookieName: name,
+            domain: process.env[`JWT_DOMAIN_${envCookieName}`] || process.env.JWT_DEFAULT_DOMAIN,
+            path: process.env[`JWT_PATH_${envCookieName}`] || '/'
+          });
         });
       }
     }
   });
   
-  return Array.from(cookieNames);
+  return cookieConfigs;
 }
 
 // Error handling
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
+  // Log error safely - avoid exposing sensitive information in production
+  if (process.env.NODE_ENV === 'development') {
+    console.error('Error:', err);
+  } else {
+    // In production, log only message and stack, not the full object
+    console.error('Error:', err.message);
+    if (err.stack) {
+      console.error('Stack:', err.stack);
+    }
+  }
+  
   res.status(500).render('error', {
     message: 'An unexpected error occurred',
-    error: process.env.NODE_ENV === 'development' ? err : {}
+    error: process.env.NODE_ENV === 'development' ? { message: err.message, stack: err.stack } : {}
   });
 });
 
