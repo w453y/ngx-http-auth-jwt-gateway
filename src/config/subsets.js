@@ -88,7 +88,8 @@ function parseAdditionalClaims(claimsStr) {
         claims[key] = true;
       } else if (value === 'false') {
         claims[key] = false;
-      } else if (!isNaN(Number(value))) {
+      } else if (value !== '' && !isNaN(Number(value))) {
+        // Check for non-empty string before numeric conversion to avoid empty string becoming 0
         claims[key] = Number(value);
       } else {
         claims[key] = value;
@@ -224,7 +225,11 @@ function validateConfiguration() {
     /^example-/i,
     /^placeholder/i,
     /^change-me/i,
-    /^test-/i
+    /^test-/i,
+    /^replace[_-]?me/i,
+    /^change[_-]?this/i,
+    /^todo[_-]?replace/i,
+    /^insert[_-]?your/i
   ];
   
   const isPlaceholder = (value) => {
@@ -307,6 +312,18 @@ function validateConfiguration() {
     } else {
       warnings.push('SESSION_SECRET appears to be a placeholder value. Please use a secure random secret.');
     }
+  }
+  
+  // Check ALLOWED_ORIGINS for CORS - warn in production if not configured
+  const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.trim() : '';
+  if (isProduction && !allowedOrigins) {
+    warnings.push('ALLOWED_ORIGINS is not configured. All CORS requests will be allowed in production. Configure ALLOWED_ORIGINS for better security.');
+  }
+  
+  // Check ALLOWED_REDIRECT_DOMAINS for open redirect protection
+  const allowedRedirectDomains = process.env.ALLOWED_REDIRECT_DOMAINS ? process.env.ALLOWED_REDIRECT_DOMAINS.trim() : '';
+  if (isProduction && !allowedRedirectDomains) {
+    warnings.push('ALLOWED_REDIRECT_DOMAINS is not configured. All absolute redirect URLs will be rejected in production. Only relative URLs (starting with /) will be allowed.');
   }
   
   return {

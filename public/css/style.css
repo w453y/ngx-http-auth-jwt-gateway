@@ -56,31 +56,31 @@ body {
 }
 
 h1 {
-    font-size: 24px;
+    font-size: 1.5rem;
     font-weight: 600;
-    margin-bottom: 8px;
+    margin-bottom: 0.5rem;
 }
 
 .subtitle {
     color: var(--text-secondary);
-    margin-bottom: 32px;
+    margin-bottom: 2rem;
 }
 
 .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    padding: 12px 24px;
-    border-radius: 8px;
-    font-size: 16px;
+    gap: 0.75rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    font-size: 1rem;
     font-weight: 500;
     text-decoration: none;
     cursor: pointer;
     border: none;
     transition: all 0.2s ease;
     width: 100%;
-    margin-bottom: 12px;
+    margin-bottom: 0.75rem;
 }
 
 .btn:last-child {
@@ -182,9 +182,9 @@ a:focus-visible {
 
 .description {
     color: var(--text-secondary);
-    font-size: 14px;
+    font-size: 0.875rem;
     line-height: 1.6;
-    margin-bottom: 24px;
+    margin-bottom: 1.5rem;
 }
 
 .actions {
@@ -263,9 +263,9 @@ a:focus-visible {
 
 footer {
     text-align: center;
-    margin-top: 24px;
+    margin-top: 1.5rem;
     color: var(--text-secondary);
-    font-size: 14px;
+    font-size: 0.875rem;
 }
 
 @media (max-width: 480px) {

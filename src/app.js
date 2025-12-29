@@ -57,9 +57,6 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
   : [];
 
-// Warning flag for CORS in production with no origins configured
-let corsProductionWarningLogged = false;
-
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -71,12 +68,8 @@ app.use(cors({
     }
     
     // In production, check against allowed origins
+    // If no origins configured, allow all (warning is logged at startup via validateConfiguration)
     if (allowedOrigins.length === 0) {
-      // Log warning once about missing ALLOWED_ORIGINS in production
-      if (!corsProductionWarningLogged) {
-        console.warn('WARNING: ALLOWED_ORIGINS is not configured in production. All CORS requests will be allowed. Configure ALLOWED_ORIGINS for better security.');
-        corsProductionWarningLogged = true;
-      }
       return callback(null, true);
     }
     
@@ -168,8 +161,9 @@ app.use((req, res, next) => {
 });
 
 // Validate return_url to prevent open redirect attacks
-// Module-level flag to track if production redirect warning has been logged
+// Module-level flags to track if warnings have been logged (to avoid spamming logs)
 let redirectDomainsProductionWarningLogged = false;
+let redirectDomainsDevWarningLogged = false;
 
 const isValidReturnUrl = (url) => {
   if (!url) return false;
@@ -197,8 +191,11 @@ const isValidReturnUrl = (url) => {
         }
         return false;
       } else {
-        // In development, allow all but log a warning
-        console.warn('WARNING: ALLOWED_REDIRECT_DOMAINS is not configured. All redirect URLs are allowed in development mode.');
+        // In development, allow all but log a warning (only once)
+        if (!redirectDomainsDevWarningLogged) {
+          console.warn('WARNING: ALLOWED_REDIRECT_DOMAINS is not configured. All redirect URLs are allowed in development mode.');
+          redirectDomainsDevWarningLogged = true;
+        }
         return true;
       }
     }
@@ -426,11 +423,19 @@ app.get('/logout', (req, res) => {
         console.error('Session destroy error:', destroyErr);
       }
       
-      // If either operation failed, show error page
+      // If either operation failed, show error page with combined error info
       if (logoutError || destroyErr) {
+        let errorMessages = [];
+        if (logoutError && logoutError.message) {
+          errorMessages.push(`Logout error: ${logoutError.message}`);
+        }
+        if (destroyErr && destroyErr.message) {
+          errorMessages.push(`Session destroy error: ${destroyErr.message}`);
+        }
+        const combinedMessage = errorMessages.join(' | ') || 'Logout failed due to an unknown error.';
         return res.status(500).render('error', {
           message: 'Failed to complete logout. Please clear your cookies manually.',
-          error: process.env.NODE_ENV === 'development' ? { message: (logoutError || destroyErr).message } : {}
+          error: process.env.NODE_ENV === 'development' ? { message: combinedMessage } : {}
         });
       }
       
@@ -447,8 +452,16 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Cached cookie configurations for efficient logout (computed once at startup)
+let cachedCookieConfigs = null;
+
 // Helper function to get all configured cookie names with their options (deduplicated)
 function getAllCookieConfigs() {
+  // Return cached result if available
+  if (cachedCookieConfigs !== null) {
+    return cachedCookieConfigs;
+  }
+  
   const cookieMap = new Map(); // Use Map to deduplicate by cookie name
   const cookieConfigPrefix = 'SUBSET_';
   const cookieConfigSuffix = '_COOKIES';
@@ -473,7 +486,9 @@ function getAllCookieConfigs() {
     }
   });
   
-  return Array.from(cookieMap.values());
+  // Cache the result for future calls
+  cachedCookieConfigs = Array.from(cookieMap.values());
+  return cachedCookieConfigs;
 }
 
 // Error handling
