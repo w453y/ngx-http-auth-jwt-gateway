@@ -9,7 +9,6 @@ const cookieParser = require('cookie-parser');
 const flash = require('connect-flash');
 const path = require('path');
 const cors = require('cors');
-const rateLimit = require('express-rate-limit');
 
 const { parseSubsets, getUserSubset, getCookieConfigForSubset, validateConfiguration } = require('./config/subsets');
 
@@ -31,26 +30,8 @@ if (configValidation.warnings.length > 0) {
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '../views'));
 
-// Trust proxy for rate limiting behind reverse proxy
+// Trust proxy when behind reverse proxy
 app.set('trust proxy', 1);
-
-// Rate limiting configuration
-const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again after 15 minutes',
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// Stricter rate limit for auth endpoints
-const strictAuthLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // Limit each IP to 20 auth attempts per windowMs
-  message: 'Too many authentication attempts, please try again after 15 minutes',
-  standardHeaders: true,
-  legacyHeaders: false,
-});
 
 // CORS configuration - restrict origins in production
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
@@ -86,9 +67,6 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Apply general rate limiting to all routes
-app.use(generalLimiter);
-
 // Ensure we always have a session secret. In production, SESSION_SECRET must be set.
 const isProduction = process.env.NODE_ENV === 'production';
 let sessionSecret = process.env.SESSION_SECRET;
@@ -106,12 +84,14 @@ if (!sessionSecret) {
 
 // Session configuration
 app.use(session({
+  name: 'auth.sid',
   secret: sessionSecret,
-  resave: false,
-  saveUninitialized: false,
+  resave: true,
+  saveUninitialized: true,
   cookie: {
     secure: isProduction,
     httpOnly: true,
+    sameSite: 'lax',
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 }));
@@ -228,6 +208,10 @@ const storeReturnUrl = (req, res, next) => {
   if (req.query.return_url) {
     if (isValidReturnUrl(req.query.return_url)) {
       req.session.return_url = req.query.return_url;
+      return req.session.save((err) => {
+        if (err) console.error('Session save error:', err);
+        next();
+      });
     } else {
       console.warn(`Invalid return_url rejected: ${req.query.return_url}`);
     }
@@ -250,33 +234,63 @@ const loginPageHandler = (req, res) => {
 };
 
 // Home / Login page
-app.get('/', strictAuthLimiter, storeReturnUrl, loginPageHandler);
+app.get('/', storeReturnUrl, loginPageHandler);
 
 // Login page (alternative route)
-app.get('/login', strictAuthLimiter, storeReturnUrl, loginPageHandler);
+app.get('/login', storeReturnUrl, loginPageHandler);
 
 // Google OAuth routes
-app.get('/auth/google', strictAuthLimiter, storeReturnUrl, (req, res, next) => {
+app.get('/auth/google', storeReturnUrl, (req, res, next) => {
+  // Get return_url from session or query and pass it via OAuth state parameter
+  const returnUrl = req.session.return_url || req.query.return_url || '';
+  
+  // Encode return_url in state parameter to preserve it through OAuth flow
+  const state = returnUrl ? Buffer.from(JSON.stringify({ return_url: returnUrl })).toString('base64') : undefined;
+  
   const authOptions = {
     scope: ['profile', 'email'],
-    prompt: 'select_account' // Always show account selection
+    prompt: 'select_account',
+    state: state
   };
   
   passport.authenticate('google', authOptions)(req, res, next);
 });
 
-app.get('/auth/google/callback', strictAuthLimiter,
+app.get('/auth/google/callback',
+  (req, res, next) => {
+    // Store state in res.locals before passport regenerates the session
+    if (req.query.state) {
+      res.locals.oauthState = req.query.state;
+    }
+    next();
+  },
   passport.authenticate('google', { 
     failureRedirect: '/login',
     failureFlash: 'Authentication failed. Please try again.'
   }),
   (req, res) => {
-    res.redirect('/process-auth');
+    // Restore return_url from state AFTER passport has regenerated the session
+    if (res.locals.oauthState) {
+      try {
+        const stateData = JSON.parse(Buffer.from(res.locals.oauthState, 'base64').toString());
+        if (stateData.return_url && isValidReturnUrl(stateData.return_url)) {
+          req.session.return_url = stateData.return_url;
+        }
+      } catch (e) {
+        console.warn('Failed to parse OAuth state:', e.message);
+      }
+    }
+    
+    // Save session before redirect
+    req.session.save((err) => {
+      if (err) console.error('Session save error:', err);
+      res.redirect('/process-auth');
+    });
   }
 );
 
 // Process authentication and set cookies
-app.get('/process-auth', strictAuthLimiter, (req, res) => {
+app.get('/process-auth', (req, res) => {
   if (!req.isAuthenticated()) {
     return res.redirect('/login');
   }
@@ -375,7 +389,7 @@ app.get('/process-auth', strictAuthLimiter, (req, res) => {
 });
 
 // Try with different account
-app.get('/try-different-account', strictAuthLimiter, (req, res) => {
+app.get('/try-different-account', (req, res) => {
   // Save return_url before logout (preserve it before any async operations)
   const savedReturnUrl = req.session.return_url;
   
@@ -402,7 +416,7 @@ app.get('/try-different-account', strictAuthLimiter, (req, res) => {
 });
 
 // Logout
-app.get('/logout', strictAuthLimiter, (req, res) => {
+app.get('/logout', (req, res) => {
   // Clear all JWT cookies with proper options
   const allCookieConfigs = getAllCookieConfigs();
   allCookieConfigs.forEach(config => {
