@@ -84,10 +84,13 @@ function parseAdditionalClaims(claimsStr) {
         claims[key] = true;
       } else if (value === 'false') {
         claims[key] = false;
-      } else if (value.trim() !== '' && !isNaN(Number(value))) {
-        claims[key] = Number(value);
       } else {
-        claims[key] = value;
+        const trimmedValue = value.trim();
+        if (trimmedValue !== '' && !isNaN(Number(trimmedValue))) {
+          claims[key] = Number(trimmedValue);
+        } else {
+          claims[key] = value;
+        }
       }
     }
   });
@@ -127,43 +130,71 @@ function getCookieConfigForSubset(subsetName) {
     cookieNames.push('auth-token');
   }
   
+  // Valid expiresIn format patterns (e.g., '24h', '7d', '30m', '3600', '1y')
+  const validExpiresInPattern = /^(\d+)(s|m|h|d|w|y)?$/i;
+  
   return cookieNames.map(cookieName => {
     // Replace hyphens with underscores for env var lookup to match our JWT_* naming convention
-    const envCookieName = cookieName.replace(/-/g, '_');
+    const cookieEnvKey = cookieName.replace(/-/g, '_');
     
-    const secret = process.env[`JWT_SECRET_${envCookieName}`] || process.env.JWT_DEFAULT_SECRET;
+    const secret = process.env[`JWT_SECRET_${cookieEnvKey}`] || process.env.JWT_DEFAULT_SECRET;
     if (!secret) {
-      throw new Error(`JWT secret not configured for cookie "${cookieName}". Set JWT_SECRET_${envCookieName} or JWT_DEFAULT_SECRET environment variable.`);
+      throw new Error(`JWT secret not configured for cookie "${cookieName}". Set JWT_SECRET_${cookieEnvKey} or JWT_DEFAULT_SECRET environment variable.`);
     }
     
     // Validate algorithm
-    const algorithm = process.env[`JWT_ALGORITHM_${envCookieName}`] || process.env.JWT_DEFAULT_ALGORITHM || 'HS256';
+    const algorithm = process.env[`JWT_ALGORITHM_${cookieEnvKey}`] || process.env.JWT_DEFAULT_ALGORITHM || 'HS256';
     if (!SUPPORTED_ALGORITHMS.includes(algorithm)) {
       throw new Error(`Invalid JWT algorithm "${algorithm}" for cookie "${cookieName}". Supported algorithms: ${SUPPORTED_ALGORITHMS.join(', ')}`);
+    }
+    
+    // Validate expiresIn format
+    const expiresIn = process.env[`JWT_EXPIRES_${cookieEnvKey}`] || process.env.JWT_DEFAULT_EXPIRES || '24h';
+    if (!validExpiresInPattern.test(expiresIn)) {
+      throw new Error(`Invalid JWT expiresIn format "${expiresIn}" for cookie "${cookieName}". Use formats like '24h', '7d', '30m', '3600', or '1y'.`);
     }
     
     return {
       cookieName: cookieName,
       secret: secret,
       algorithm: algorithm,
-      expiresIn: process.env[`JWT_EXPIRES_${envCookieName}`] || process.env.JWT_DEFAULT_EXPIRES || '24h',
-      domain: process.env[`JWT_DOMAIN_${envCookieName}`] || process.env.JWT_DEFAULT_DOMAIN,
-      path: process.env[`JWT_PATH_${envCookieName}`] || '/',
-      httpOnly: parseBoolean(process.env[`JWT_HTTPONLY_${envCookieName}`], true),
-      maxAge: process.env[`JWT_MAXAGE_${envCookieName}`] ? parseInt(process.env[`JWT_MAXAGE_${envCookieName}`], 10) : 24 * 60 * 60 * 1000,
-      sameSite: process.env[`JWT_SAMESITE_${envCookieName}`] || 'lax',
-      additionalClaims: parseAdditionalClaims(process.env[`JWT_CLAIMS_${envCookieName}`])
+      expiresIn: expiresIn,
+      domain: process.env[`JWT_DOMAIN_${cookieEnvKey}`] || process.env.JWT_DEFAULT_DOMAIN,
+      path: process.env[`JWT_PATH_${cookieEnvKey}`] || '/',
+      httpOnly: parseBoolean(process.env[`JWT_HTTPONLY_${cookieEnvKey}`], true),
+      maxAge: process.env[`JWT_MAXAGE_${cookieEnvKey}`] ? parseInt(process.env[`JWT_MAXAGE_${cookieEnvKey}`], 10) : 24 * 60 * 60 * 1000,
+      sameSite: process.env[`JWT_SAMESITE_${cookieEnvKey}`] || 'lax',
+      additionalClaims: parseAdditionalClaims(process.env[`JWT_CLAIMS_${cookieEnvKey}`])
     };
   });
 }
 
 /**
- * Validate the subset configuration
- * @returns {Object} Validation result with isValid and errors array
+ * Validate the environment-based subset and authentication configuration.
+ *
+ * This function inspects the current process.env values used by subset parsing
+ * and cookie/JWT configuration (such as GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+ * SUBSETS, per-subset email/cookie variables, and SESSION_SECRET). It performs
+ * a best-effort validation to detect missing values and common placeholder
+ * patterns that should not be used in production.
+ *
+ * It is intended to be called during application start-up, before handling
+ * any requests, so that configuration problems can be surfaced early.
+ * The function does not throw; instead it returns a summary object that
+ * callers can use to decide whether to continue starting the application
+ * (for example by logging warnings) or to abort start-up when fatal errors
+ * are present.
+ *
+ * @returns {{isValid: boolean, errors: string[], warnings: string[]}}
+ *          An object containing:
+ *          - `isValid`: `true` if no fatal errors were found, `false` otherwise.
+ *          - `errors`: a list of fatal configuration issues that must be fixed.
+ *          - `warnings`: a list of non-fatal issues that should be reviewed.
  */
 function validateConfiguration() {
   const errors = [];
   const warnings = [];
+  const isProduction = process.env.NODE_ENV === 'production';
   
   // Placeholder values that should not be used in production
   const placeholderPatterns = [
@@ -211,8 +242,8 @@ function validateConfiguration() {
       if (process.env[cookiesKey]) {
         const cookies = process.env[cookiesKey].split(',').map(c => c.trim());
         cookies.forEach(cookie => {
-          const envCookieName = cookie.replace(/-/g, '_');
-          const secretKey = `JWT_SECRET_${envCookieName}`;
+          const cookieEnvKey = cookie.replace(/-/g, '_');
+          const secretKey = `JWT_SECRET_${cookieEnvKey}`;
           if (!process.env[secretKey] && !process.env.JWT_DEFAULT_SECRET) {
             warnings.push(`${secretKey} is not configured and no JWT_DEFAULT_SECRET provided`);
           }
@@ -221,11 +252,20 @@ function validateConfiguration() {
     });
   }
   
-  // Check session secret
-  if (!process.env.SESSION_SECRET) {
-    warnings.push('SESSION_SECRET is not configured. Using default value.');
-  } else if (isPlaceholder(process.env.SESSION_SECRET)) {
-    warnings.push('SESSION_SECRET appears to be a placeholder value. Please use a secure random secret.');
+  // Check session secret - more strict in production
+  const sessionSecret = process.env.SESSION_SECRET ? process.env.SESSION_SECRET.trim() : '';
+  if (!sessionSecret) {
+    if (isProduction) {
+      errors.push('SESSION_SECRET is required in production. Please set a strong, random SESSION_SECRET.');
+    } else {
+      warnings.push('SESSION_SECRET is not configured.');
+    }
+  } else if (isPlaceholder(sessionSecret)) {
+    if (isProduction) {
+      errors.push('SESSION_SECRET is set to a placeholder value. Placeholder secrets are not allowed in production.');
+    } else {
+      warnings.push('SESSION_SECRET appears to be a placeholder value. Please use a secure random secret.');
+    }
   }
   
   return {

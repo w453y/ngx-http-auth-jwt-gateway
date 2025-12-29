@@ -23,7 +23,7 @@ app.set('views', path.join(__dirname, '../views'));
 app.set('trust proxy', 1);
 
 // Rate limiting configuration
-const authLimiter = rateLimit({
+const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per windowMs
   message: 'Too many requests from this IP, please try again after 15 minutes',
@@ -70,7 +70,7 @@ app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '../public')));
 
 // Apply general rate limiting to all routes
-app.use(authLimiter);
+app.use(generalLimiter);
 
 // Session configuration
 if (!process.env.SESSION_SECRET) {
@@ -182,8 +182,8 @@ const storeReturnUrl = (req, res, next) => {
   next();
 };
 
-// Home / Login page
-app.get('/', strictAuthLimiter, storeReturnUrl, (req, res) => {
+// Shared login page handler
+const loginPageHandler = (req, res) => {
   // If user is already logged in, process cookies and redirect
   if (req.isAuthenticated()) {
     return res.redirect('/process-auth');
@@ -194,20 +194,13 @@ app.get('/', strictAuthLimiter, storeReturnUrl, (req, res) => {
     returnUrl,
     user: req.user
   });
-});
+};
+
+// Home / Login page
+app.get('/', strictAuthLimiter, storeReturnUrl, loginPageHandler);
 
 // Login page (alternative route)
-app.get('/login', strictAuthLimiter, storeReturnUrl, (req, res) => {
-  if (req.isAuthenticated()) {
-    return res.redirect('/process-auth');
-  }
-  
-  const returnUrl = req.session.return_url || req.query.return_url || '';
-  res.render('login', { 
-    returnUrl,
-    user: req.user
-  });
-});
+app.get('/login', strictAuthLimiter, storeReturnUrl, loginPageHandler);
 
 // Google OAuth routes
 app.get('/auth/google', strictAuthLimiter, storeReturnUrl, (req, res, next) => {
@@ -309,19 +302,28 @@ app.get('/process-auth', strictAuthLimiter, (req, res) => {
 
 // Try with different account
 app.get('/try-different-account', (req, res) => {
-  // Logout but preserve return_url
-  const returnUrl = req.session.return_url;
+  // Save return_url before logout (preserve it before any async operations)
+  const savedReturnUrl = req.session.return_url;
   
   req.logout((err) => {
     if (err) {
       console.error('Logout error:', err);
+      // Even on error, try to continue with the flow
     }
     
-    // Restore return_url
-    req.session.return_url = returnUrl;
+    // Restore return_url after successful logout
+    if (savedReturnUrl) {
+      req.session.return_url = savedReturnUrl;
+    }
     
-    // Redirect to Google OAuth with prompt for account selection
-    res.redirect('/auth/google');
+    // Save session before redirect to ensure return_url is persisted
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        console.error('Session save error:', saveErr);
+      }
+      // Redirect to Google OAuth with prompt for account selection
+      res.redirect('/auth/google');
+    });
   });
 });
 
@@ -339,16 +341,24 @@ app.get('/logout', (req, res) => {
     res.clearCookie(config.cookieName, clearOptions);
   });
 
-  req.logout((err) => {
-    if (err) {
-      console.error('Logout error:', err);
+  const returnUrl = req.session.return_url || req.query.return_url;
+
+  req.logout((logoutErr) => {
+    if (logoutErr) {
+      console.error('Logout error:', logoutErr);
     }
-    const returnUrl = req.session.return_url || req.query.return_url;
     
     // Properly destroy session and wait for completion
     req.session.destroy((destroyErr) => {
       if (destroyErr) {
         console.error('Session destroy error:', destroyErr);
+        // If both logout and destroy failed, show error page
+        if (logoutErr) {
+          return res.status(500).render('error', {
+            message: 'Failed to complete logout',
+            error: process.env.NODE_ENV === 'development' ? { message: destroyErr.message } : {}
+          });
+        }
       }
       
       if (returnUrl && isValidReturnUrl(returnUrl)) {

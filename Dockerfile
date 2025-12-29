@@ -12,6 +12,7 @@ RUN npm ci --only=production
 COPY src ./src
 COPY views ./views
 COPY public ./public
+COPY scripts ./scripts
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
@@ -25,9 +26,9 @@ USER nodejs
 # Expose port
 EXPOSE 3000
 
-# Health check using node (no need for wget/curl)
+# Health check using dedicated script
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"
+    CMD node scripts/healthcheck.js
 
 # Start the application
 CMD ["node", "src/app.js"]

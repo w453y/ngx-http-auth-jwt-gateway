@@ -48,7 +48,13 @@ http {
     #   printf '%s' "your-jwt-secret" | xxd -p | tr -d '\n'
     # 
     # Then copy the resulting hex string into auth_jwt_key below.
+    #
     # IMPORTANT: The auth gateway and NGINX must use the same secret!
+    # WARNING: You MUST replace the placeholder value below with your actual
+    #          hex-encoded secret key that corresponds to the JWT_SECRET used
+    #          by your auth gateway. If this value is not updated correctly,
+    #          NGINX will fail to validate tokens and all authenticated
+    #          requests will be rejected.
     auth_jwt_key 'your-hex-encoded-secret-key';
     
     # Use HS256 algorithm (must match auth gateway)
