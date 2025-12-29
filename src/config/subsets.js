@@ -77,20 +77,21 @@ function parseAdditionalClaims(claimsStr) {
   if (!claimsStr) return claims;
   
   claimsStr.split(',').forEach(pair => {
-    const [key, value] = pair.split(':').map(s => s.trim());
-    if (key && value !== undefined) {
+    const [rawKey, rawValue] = pair.split(':');
+    const key = rawKey && rawKey.trim();
+    const value = typeof rawValue === 'string' ? rawValue.trim() : undefined;
+    
+    // Skip if key is empty or value is undefined/empty
+    if (key && value !== undefined && value !== '') {
       // Try to parse as number or boolean
       if (value === 'true') {
         claims[key] = true;
       } else if (value === 'false') {
         claims[key] = false;
+      } else if (!isNaN(Number(value))) {
+        claims[key] = Number(value);
       } else {
-        const trimmedValue = value.trim();
-        if (trimmedValue !== '' && !isNaN(Number(trimmedValue))) {
-          claims[key] = Number(trimmedValue);
-        } else {
-          claims[key] = value;
-        }
+        claims[key] = value;
       }
     }
   });
@@ -137,21 +138,33 @@ function getCookieConfigForSubset(subsetName) {
     // Replace hyphens with underscores for env var lookup to match our JWT_* naming convention
     const cookieEnvKey = cookieName.replace(/-/g, '_');
     
-    const secret = process.env[`JWT_SECRET_${cookieEnvKey}`] || process.env.JWT_DEFAULT_SECRET;
-    if (!secret) {
-      throw new Error(`JWT secret not configured for cookie "${cookieName}". Set JWT_SECRET_${cookieEnvKey} or JWT_DEFAULT_SECRET environment variable.`);
-    }
-    
-    // Validate algorithm
+    // Validate algorithm first so configuration issues are surfaced even if the secret is missing
     const algorithm = process.env[`JWT_ALGORITHM_${cookieEnvKey}`] || process.env.JWT_DEFAULT_ALGORITHM || 'HS256';
     if (!SUPPORTED_ALGORITHMS.includes(algorithm)) {
       throw new Error(`Invalid JWT algorithm "${algorithm}" for cookie "${cookieName}". Supported algorithms: ${SUPPORTED_ALGORITHMS.join(', ')}`);
+    }
+    
+    const secret = process.env[`JWT_SECRET_${cookieEnvKey}`] || process.env.JWT_DEFAULT_SECRET;
+    if (!secret) {
+      throw new Error(`JWT secret not configured for cookie "${cookieName}". Set JWT_SECRET_${cookieEnvKey} or JWT_DEFAULT_SECRET environment variable.`);
     }
     
     // Validate expiresIn format
     const expiresIn = process.env[`JWT_EXPIRES_${cookieEnvKey}`] || process.env.JWT_DEFAULT_EXPIRES || '24h';
     if (!validExpiresInPattern.test(expiresIn)) {
       throw new Error(`Invalid JWT expiresIn format "${expiresIn}" for cookie "${cookieName}". Use formats like '24h', '7d', '30m', '3600', or '1y'.`);
+    }
+    
+    // Parse maxAge with fallback to default if invalid
+    const maxAgeStr = process.env[`JWT_MAXAGE_${cookieEnvKey}`];
+    let maxAge = 24 * 60 * 60 * 1000; // Default 24 hours
+    if (maxAgeStr) {
+      const parsedMaxAge = parseInt(maxAgeStr, 10);
+      if (!isNaN(parsedMaxAge) && parsedMaxAge > 0) {
+        maxAge = parsedMaxAge;
+      } else {
+        console.warn(`Invalid JWT_MAXAGE_${cookieEnvKey} value "${maxAgeStr}", using default 24 hours`);
+      }
     }
     
     return {
@@ -162,7 +175,7 @@ function getCookieConfigForSubset(subsetName) {
       domain: process.env[`JWT_DOMAIN_${cookieEnvKey}`] || process.env.JWT_DEFAULT_DOMAIN,
       path: process.env[`JWT_PATH_${cookieEnvKey}`] || '/',
       httpOnly: parseBoolean(process.env[`JWT_HTTPONLY_${cookieEnvKey}`], true),
-      maxAge: process.env[`JWT_MAXAGE_${cookieEnvKey}`] ? parseInt(process.env[`JWT_MAXAGE_${cookieEnvKey}`], 10) : 24 * 60 * 60 * 1000,
+      maxAge: maxAge,
       sameSite: process.env[`JWT_SAMESITE_${cookieEnvKey}`] || 'lax',
       additionalClaims: parseAdditionalClaims(process.env[`JWT_CLAIMS_${cookieEnvKey}`])
     };
@@ -244,12 +257,31 @@ function validateConfiguration() {
         cookies.forEach(cookie => {
           const cookieEnvKey = cookie.replace(/-/g, '_');
           const secretKey = `JWT_SECRET_${cookieEnvKey}`;
-          if (!process.env[secretKey] && !process.env.JWT_DEFAULT_SECRET) {
+          const secret = process.env[secretKey] || process.env.JWT_DEFAULT_SECRET;
+          
+          if (!secret) {
             warnings.push(`${secretKey} is not configured and no JWT_DEFAULT_SECRET provided`);
+          } else if (isPlaceholder(secret)) {
+            // JWT secrets should not be placeholder values
+            if (isProduction) {
+              errors.push(`${secretKey} is set to a placeholder value. Placeholder secrets are not allowed in production.`);
+            } else {
+              warnings.push(`${secretKey} appears to be a placeholder value. Please use a secure random secret.`);
+            }
           }
         });
       }
     });
+  }
+  
+  // Also check JWT_DEFAULT_SECRET for placeholder values
+  const defaultSecret = process.env.JWT_DEFAULT_SECRET ? process.env.JWT_DEFAULT_SECRET.trim() : '';
+  if (defaultSecret && isPlaceholder(defaultSecret)) {
+    if (isProduction) {
+      errors.push('JWT_DEFAULT_SECRET is set to a placeholder value. Placeholder secrets are not allowed in production.');
+    } else {
+      warnings.push('JWT_DEFAULT_SECRET appears to be a placeholder value. Please use a secure random secret.');
+    }
   }
   
   // Check session secret - more strict in production

@@ -84,12 +84,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 // Apply general rate limiting to all routes
 app.use(generalLimiter);
 
-// Session configuration
-if (!process.env.SESSION_SECRET) {
-  console.error('ERROR: SESSION_SECRET environment variable is required');
-  process.exit(1);
-}
-
+// Session configuration - SESSION_SECRET validation is handled by validateConfiguration()
 app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
@@ -178,8 +173,16 @@ const isValidReturnUrl = (url) => {
       return hostname === domain;
     });
   } catch {
-    // If URL parsing fails, it might be a relative URL - allow it
-    return url.startsWith('/');
+    // If URL parsing fails, treat it as a relative URL.
+    // Only allow a single leading slash (e.g., "/path"), and reject
+    // protocol-relative or backslash-prefixed URLs like "//evil.com" or "/\evil.com".
+    if (url[0] !== '/') {
+      return false;
+    }
+    if (url.length >= 2 && (url[1] === '/' || url[1] === '\\')) {
+      return false;
+    }
+    return true;
   }
 };
 
@@ -369,23 +372,26 @@ app.get('/logout', (req, res) => {
   });
 
   const returnUrl = req.session.return_url || req.query.return_url;
+  let logoutError = null;
 
   req.logout((logoutErr) => {
     if (logoutErr) {
       console.error('Logout error:', logoutErr);
+      logoutError = logoutErr;
     }
     
     // Properly destroy session and wait for completion
     req.session.destroy((destroyErr) => {
       if (destroyErr) {
         console.error('Session destroy error:', destroyErr);
-        // If both logout and destroy failed, show error page
-        if (logoutErr) {
-          return res.status(500).render('error', {
-            message: 'Failed to complete logout',
-            error: process.env.NODE_ENV === 'development' ? { message: destroyErr.message } : {}
-          });
-        }
+      }
+      
+      // If either operation failed, show error page
+      if (logoutError || destroyErr) {
+        return res.status(500).render('error', {
+          message: 'Failed to complete logout. Please clear your cookies manually.',
+          error: process.env.NODE_ENV === 'development' ? { message: (logoutError || destroyErr).message } : {}
+        });
       }
       
       if (returnUrl && isValidReturnUrl(returnUrl)) {

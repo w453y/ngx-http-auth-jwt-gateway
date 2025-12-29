@@ -55,7 +55,8 @@ http {
     #          by your auth gateway. If this value is not updated correctly,
     #          NGINX will fail to validate tokens and all authenticated
     #          requests will be rejected.
-    auth_jwt_key 'your-hex-encoded-secret-key';
+    # The value below is 'replace-with-your-secret' encoded in hex - NOT for production use!
+    auth_jwt_key '7265706c6163652d776974682d796f75722d736563726574';
     
     # Use HS256 algorithm (must match auth gateway)
     auth_jwt_algorithm HS256;
