@@ -127,6 +127,8 @@ See `nginx/nginx.conf.example` for a complete configuration example.
 
 Basic NGINX configuration:
 
+> **Note:** This example shows HTTP (`listen 80`) for simplicity. In production, you MUST use HTTPS with TLS certificates (`listen 443 ssl;`) to protect credentials and JWTs in transit.
+
 ```nginx
 load_module /usr/lib64/nginx/modules/ngx_http_auth_jwt_module.so;
 
@@ -138,8 +140,9 @@ http {
     auth_jwt_redirect on;
     auth_jwt_loginurl 'https://auth.example.com';
 
+    # NOTE: In production, use "listen 443 ssl;" with proper TLS certificates
     server {
-        listen 80;
+        listen 80;  # For demo only - use HTTPS in production
         server_name app.example.com;
         
         auth_jwt_enabled on;

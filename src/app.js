@@ -352,12 +352,19 @@ app.get('/process-auth', strictAuthLimiter, (req, res) => {
   });
 
   // Redirect to return_url or show success
+  // Re-validate the stored return_url before redirecting to protect against session tampering
   const returnUrl = req.session.return_url;
   
-  if (returnUrl) {
+  if (returnUrl && isValidReturnUrl(returnUrl)) {
     // Clear the stored return_url
     delete req.session.return_url;
     return res.redirect(returnUrl);
+  }
+  
+  // If the stored return_url is present but invalid, clear it and fall through to success page
+  if (returnUrl) {
+    console.warn('Stored return_url failed re-validation, clearing:', returnUrl);
+    delete req.session.return_url;
   }
 
   res.render('success', {
@@ -454,7 +461,9 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Cached cookie configurations for efficient logout (computed once at startup)
+// Cached cookie configurations for efficient logout (computed once at startup).
+// This cache is built when first called and will not reflect runtime configuration changes.
+// In production, environment variables should not change after the app starts.
 let cachedCookieConfigs = null;
 
 // Helper function to get all configured cookie names with their options (deduplicated)

@@ -18,8 +18,11 @@ const options = {
   path: '/health',
   method: 'GET',
   timeout: 2000,
-  // For HTTPS, ignore self-signed certificate errors in health checks
-  rejectUnauthorized: false
+  // For HTTPS, disable SSL certificate verification to allow self-signed certificates
+  // in internal health checks. This is intentional for container health checks where
+  // the service may use self-signed certificates internally.
+  // Set HEALTHCHECK_VERIFY_SSL=true to enforce certificate verification if needed.
+  rejectUnauthorized: process.env.HEALTHCHECK_VERIFY_SSL === 'true'
 };
 
 const req = transport.request(options, (res) => {

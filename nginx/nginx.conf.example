@@ -73,7 +73,16 @@ http {
     # ============================================
     # Auth Gateway Server
     # ============================================
-    # This server hosts the authentication gateway
+    # This server hosts the authentication gateway.
+    #
+    # SECURITY WARNING:
+    # - This example server listens on HTTP (port 80) for simplicity and
+    #   local/testing use only.
+    # - In PRODUCTION you MUST serve auth.example.com over HTTPS with TLS
+    #   (for example, using "listen 443 ssl;" and proper certificates, or
+    #   terminating TLS in a trusted reverse proxy in front of NGINX).
+    # - Do NOT transmit credentials or JWTs over plain HTTP on the public
+    #   Internet.
     server {
         listen 80;
         server_name auth.example.com;

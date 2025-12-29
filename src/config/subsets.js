@@ -77,7 +77,10 @@ function parseAdditionalClaims(claimsStr) {
   if (!claimsStr) return claims;
   
   claimsStr.split(',').forEach(pair => {
-    const [rawKey, rawValue] = pair.split(':');
+    // Use limit of 2 to handle values containing colons (e.g., "url:http://example.com")
+    const colonIndex = pair.indexOf(':');
+    const rawKey = colonIndex > -1 ? pair.substring(0, colonIndex) : pair;
+    const rawValue = colonIndex > -1 ? pair.substring(colonIndex + 1) : undefined;
     const key = rawKey && rawKey.trim();
     const value = typeof rawValue === 'string' ? rawValue.trim() : undefined;
     
@@ -91,10 +94,14 @@ function parseAdditionalClaims(claimsStr) {
       } else {
         // Numeric parsing: accept plain decimal numbers (no scientific notation),
         // but preserve values with leading zeros (e.g. "007") as strings.
+        // Note: "1.0" will be treated as a number (1) since String(1.0) === "1".
+        // This is intentional - values like "1.0" are valid numeric inputs.
         const hasLeadingZeroInteger = /^0\d+/.test(value);
+        // Plain decimal pattern matches numbers like "123", "1.5", "-42", "+3.14"
+        const isPlainDecimal = /^[+-]?\d+(\.\d+)?$/.test(value);
         const num = Number(value);
         
-        if (!hasLeadingZeroInteger && !Number.isNaN(num) && String(num) === value) {
+        if (!hasLeadingZeroInteger && isPlainDecimal && Number.isFinite(num)) {
           claims[key] = num;
         } else {
           claims[key] = value;
@@ -149,7 +156,11 @@ function getCookieConfigForSubset(subsetName) {
   
   // Valid expiresIn format patterns (e.g., '24h', '7d', '30m', '3600', '1y')
   // Note: Plain numbers without a unit suffix (e.g., '3600') are interpreted as seconds by jsonwebtoken
+  // Time unit suffixes are case-insensitive and lowercased before use
   const validExpiresInPattern = /^(\d+)(s|m|h|d|w|y)?$/i;
+  
+  // Valid sameSite values for cookie configuration
+  const validSameSiteValues = ['strict', 'lax', 'none'];
   
   return cookieNames.map(cookieName => {
     // Replace hyphens with underscores for env var lookup to match our JWT_* naming convention
@@ -184,16 +195,26 @@ function getCookieConfigForSubset(subsetName) {
       }
     }
     
+    // Validate and normalize sameSite
+    const rawSameSite = process.env[`JWT_SAMESITE_${cookieEnvKey}`] || 'lax';
+    const normalizedSameSite = rawSameSite.toLowerCase().trim();
+    if (!validSameSiteValues.includes(normalizedSameSite)) {
+      throw new Error(`Invalid sameSite value "${rawSameSite}" for cookie "${cookieName}". Valid values: ${validSameSiteValues.join(', ')}`);
+    }
+    
+    // Lowercase expiresIn to ensure jsonwebtoken compatibility
+    const normalizedExpiresIn = expiresIn.toLowerCase();
+    
     return {
       cookieName: cookieName,
       secret: secret,
       algorithm: algorithm,
-      expiresIn: expiresIn,
+      expiresIn: normalizedExpiresIn,
       domain: process.env[`JWT_DOMAIN_${cookieEnvKey}`] || process.env.JWT_DEFAULT_DOMAIN,
       path: process.env[`JWT_PATH_${cookieEnvKey}`] || '/',
       httpOnly: parseBoolean(process.env[`JWT_HTTPONLY_${cookieEnvKey}`], true),
       maxAge: maxAge,
-      sameSite: process.env[`JWT_SAMESITE_${cookieEnvKey}`] || 'lax',
+      sameSite: normalizedSameSite,
       additionalClaims: parseAdditionalClaims(process.env[`JWT_CLAIMS_${cookieEnvKey}`])
     };
   });
@@ -229,13 +250,14 @@ function validateConfiguration() {
   // Placeholder values that should not be used in production
   const placeholderPatterns = [
     /^your-/i,
-    /^example-/i,
+    /^example[-_]?/i,       // Matches "example-", "example_", "EXAMPLE_ONLY", etc.
     /^placeholder/i,
     /^change-me/i,
     /^replace[_-]?me/i,
     /^change[_-]?this/i,
     /^todo[_-]?replace/i,
-    /^insert[_-]?your/i
+    /^insert[_-]?your/i,
+    /^changeme$/i           // Matches exactly "changeme"
   ];
   
   // In production, also treat values starting with "test-" as placeholders
