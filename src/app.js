@@ -84,13 +84,28 @@ app.use(express.static(path.join(__dirname, '../public')));
 // Apply general rate limiting to all routes
 app.use(generalLimiter);
 
-// Session configuration - SESSION_SECRET validation is handled by validateConfiguration()
+// Ensure we always have a session secret. In production, SESSION_SECRET must be set.
+const isProduction = process.env.NODE_ENV === 'production';
+let sessionSecret = process.env.SESSION_SECRET;
+
+if (!sessionSecret) {
+  if (isProduction) {
+    console.error('SESSION_SECRET environment variable is required in production.');
+    process.exit(1);
+  } else {
+    // Development-only fallback to avoid runtime errors; do NOT use in production.
+    sessionSecret = 'insecure-dev-session-secret-change-me';
+    console.warn('SESSION_SECRET is not set. Using an insecure default session secret for development only.');
+  }
+}
+
+// Session configuration
 app.use(session({
-  secret: process.env.SESSION_SECRET,
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: isProduction,
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
