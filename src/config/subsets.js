@@ -89,9 +89,12 @@ function parseAdditionalClaims(claimsStr) {
       } else if (value === 'false') {
         claims[key] = false;
       } else {
-        // More robust numeric parsing - verify the string representation matches
+        // Numeric parsing: accept plain decimal numbers (no scientific notation),
+        // but preserve values with leading zeros (e.g. "007") as strings.
+        const hasLeadingZeroInteger = /^0\d+/.test(value);
         const num = Number(value);
-        if (!Number.isNaN(num) && String(num) === value) {
+        
+        if (!hasLeadingZeroInteger && !Number.isNaN(num) && String(num) === value) {
           claims[key] = num;
         } else {
           claims[key] = value;
@@ -229,16 +232,31 @@ function validateConfiguration() {
     /^example-/i,
     /^placeholder/i,
     /^change-me/i,
-    /^test-/i,
     /^replace[_-]?me/i,
     /^change[_-]?this/i,
     /^todo[_-]?replace/i,
     /^insert[_-]?your/i
   ];
   
+  // In production, also treat values starting with "test-" as placeholders
+  const testPlaceholderPattern = /^test-/i;
+  
   const isPlaceholder = (value) => {
     if (!value) return false;
-    return placeholderPatterns.some(pattern => pattern.test(value.trim()));
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    
+    // Always apply the common placeholder patterns
+    if (placeholderPatterns.some(pattern => pattern.test(trimmed))) {
+      return true;
+    }
+    
+    // Only treat "test-..." values as placeholders in production
+    if (isProduction && testPlaceholderPattern.test(trimmed)) {
+      return true;
+    }
+    
+    return false;
   };
   
   // Check for required environment variables
