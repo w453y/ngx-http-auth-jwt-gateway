@@ -408,7 +408,9 @@ app.get('/logout', (req, res) => {
     res.clearCookie(config.cookieName, clearOptions);
   });
 
-  const returnUrl = req.session.return_url || req.query.return_url;
+  // Only use session-stored return_url (already validated by storeReturnUrl middleware)
+  // Do not accept unvalidated query parameters to prevent open redirect attacks
+  const returnUrl = req.session.return_url;
   let logoutError = null;
 
   req.logout((logoutErr) => {
