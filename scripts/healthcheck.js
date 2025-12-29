@@ -2,6 +2,10 @@
 /**
  * Health check script for Docker container
  * Exits with 0 if the service is healthy, 1 otherwise
+ * 
+ * Note: This script uses HTTP to check the health endpoint. If your application
+ * is configured to only listen on HTTPS, you'll need to modify this script
+ * or configure a separate HTTP health endpoint internally.
  */
 
 const http = require('http');

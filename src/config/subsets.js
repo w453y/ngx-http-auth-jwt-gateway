@@ -113,8 +113,17 @@ function parseBoolean(value, defaultValue = true) {
     return defaultValue;
   }
   const normalizedValue = String(value).toLowerCase().trim();
+  const truthyValues = ['true', '1', 'yes', 'on', 'enabled'];
   const falsyValues = ['false', '0', 'no', 'off', 'disabled'];
-  return !falsyValues.includes(normalizedValue);
+  
+  if (truthyValues.includes(normalizedValue)) {
+    return true;
+  }
+  if (falsyValues.includes(normalizedValue)) {
+    return false;
+  }
+  // For unrecognized values, return the default
+  return defaultValue;
 }
 
 /**

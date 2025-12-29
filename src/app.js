@@ -57,6 +57,9 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
   : [];
 
+// Warning flag for CORS in production with no origins configured
+let corsProductionWarningLogged = false;
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -68,7 +71,16 @@ app.use(cors({
     }
     
     // In production, check against allowed origins
-    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+    if (allowedOrigins.length === 0) {
+      // Log warning once about missing ALLOWED_ORIGINS in production
+      if (!corsProductionWarningLogged) {
+        console.warn('WARNING: ALLOWED_ORIGINS is not configured in production. All CORS requests will be allowed. Configure ALLOWED_ORIGINS for better security.');
+        corsProductionWarningLogged = true;
+      }
+      return callback(null, true);
+    }
+    
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
     
@@ -156,6 +168,9 @@ app.use((req, res, next) => {
 });
 
 // Validate return_url to prevent open redirect attacks
+// Module-level flag to track if production redirect warning has been logged
+let redirectDomainsProductionWarningLogged = false;
+
 const isValidReturnUrl = (url) => {
   if (!url) return false;
   
@@ -176,9 +191,9 @@ const isValidReturnUrl = (url) => {
     if (allowedDomains.length === 0) {
       if (isProduction) {
         // In production, log a warning once and reject absolute URLs when no domains are configured
-        if (!isValidReturnUrl._productionWarningLogged) {
+        if (!redirectDomainsProductionWarningLogged) {
           console.warn('WARNING: ALLOWED_REDIRECT_DOMAINS is not configured in production. All absolute redirect URLs will be rejected. Only relative URLs (starting with /) will be allowed.');
-          isValidReturnUrl._productionWarningLogged = true;
+          redirectDomainsProductionWarningLogged = true;
         }
         return false;
       } else {
@@ -463,15 +478,11 @@ function getAllCookieConfigs() {
 
 // Error handling
 app.use((err, req, res, next) => {
-  // Log error safely - avoid exposing sensitive information in production
-  if (process.env.NODE_ENV === 'development') {
-    console.error('Error:', err);
-  } else {
-    // In production, log only message and stack, not the full object
-    console.error('Error:', err.message);
-    if (err.stack) {
-      console.error('Stack:', err.stack);
-    }
+  // Log error safely - log only message and stack in all environments
+  // to avoid circular references or sensitive data in error objects
+  console.error('Error:', err && err.message);
+  if (err && err.stack) {
+    console.error('Stack:', err.stack);
   }
   
   res.status(500).render('error', {
