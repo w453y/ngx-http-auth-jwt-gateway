@@ -172,10 +172,20 @@ const isValidReturnUrl = (url) => {
       return false;
     }
     
-    // If no allowed domains configured, allow all (for development) but log a warning
-    if (allowedDomains.length === 0 && process.env.NODE_ENV !== 'production') {
-      console.warn('WARNING: ALLOWED_REDIRECT_DOMAINS is not configured. All redirect URLs are allowed in development mode.');
-      return true;
+    // If no allowed domains configured
+    if (allowedDomains.length === 0) {
+      if (isProduction) {
+        // In production, log a warning once and reject absolute URLs when no domains are configured
+        if (!isValidReturnUrl._productionWarningLogged) {
+          console.warn('WARNING: ALLOWED_REDIRECT_DOMAINS is not configured in production. All absolute redirect URLs will be rejected. Only relative URLs (starting with /) will be allowed.');
+          isValidReturnUrl._productionWarningLogged = true;
+        }
+        return false;
+      } else {
+        // In development, allow all but log a warning
+        console.warn('WARNING: ALLOWED_REDIRECT_DOMAINS is not configured. All redirect URLs are allowed in development mode.');
+        return true;
+      }
     }
     
     // Check if the domain is in the allowed list
