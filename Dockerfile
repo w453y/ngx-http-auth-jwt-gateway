@@ -12,7 +12,9 @@ RUN npm ci --only=production
 COPY src ./src
 COPY views ./views
 COPY public ./public
-COPY scripts ./scripts
+
+# Copy healthcheck script
+COPY scripts/healthcheck.js ./scripts/healthcheck.js
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \

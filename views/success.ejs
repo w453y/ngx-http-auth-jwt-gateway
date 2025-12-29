@@ -20,7 +20,7 @@
             
             <div class="user-info">
                 <% if (user.photo) { %>
-                    <img src="<%= user.photo %>" alt="Profile" class="user-photo">
+                    <img src="<%= user.photo %>" alt="Profile picture of <%= user.displayName %>" class="user-photo">
                 <% } %>
                 <div class="user-details">
                     <strong><%= user.displayName %></strong>

@@ -11,9 +11,21 @@ const path = require('path');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 
-const { parseSubsets, getUserSubset, getCookieConfigForSubset } = require('./config/subsets');
+const { parseSubsets, getUserSubset, getCookieConfigForSubset, validateConfiguration } = require('./config/subsets');
 
 const app = express();
+
+// Validate configuration at startup
+const configValidation = validateConfiguration();
+if (configValidation.errors.length > 0) {
+  console.error('Configuration errors:');
+  configValidation.errors.forEach(err => console.error(`  - ${err}`));
+  process.exit(1);
+}
+if (configValidation.warnings.length > 0) {
+  console.warn('Configuration warnings:');
+  configValidation.warnings.forEach(warn => console.warn(`  - ${warn}`));
+}
 
 // View engine setup
 app.set('view engine', 'ejs');
@@ -150,8 +162,9 @@ const isValidReturnUrl = (url) => {
       return false;
     }
     
-    // If no allowed domains configured, allow all (for development)
+    // If no allowed domains configured, allow all (for development) but log a warning
     if (allowedDomains.length === 0 && process.env.NODE_ENV !== 'production') {
+      console.warn('WARNING: ALLOWED_REDIRECT_DOMAINS is not configured. All redirect URLs are allowed in development mode.');
       return true;
     }
     
@@ -228,7 +241,21 @@ app.get('/process-auth', strictAuthLimiter, (req, res) => {
     return res.redirect('/login');
   }
 
-  const email = req.user.email;
+  const email = req.user && req.user.email ? req.user.email : null;
+
+  // Ensure the authenticated user has an email before proceeding
+  if (!email) {
+    const supportEmail = process.env.SUPPORT_EMAIL || '';
+    const errorMsg = supportEmail
+      ? `Your Google account does not provide an email address. Contact your administrator at ${supportEmail} for assistance.`
+      : 'Your Google account does not provide an email address. Please contact your administrator for assistance.';
+    req.flash('error', errorMsg);
+    return res.render('unauthorized', {
+      email: 'No email provided',
+      returnUrl: req.session.return_url || '',
+      supportEmail: supportEmail
+    });
+  }
   
   // Find user's subset
   const userSubset = getUserSubset(email, subsets);
@@ -374,9 +401,9 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Helper function to get all configured cookie names with their options
+// Helper function to get all configured cookie names with their options (deduplicated)
 function getAllCookieConfigs() {
-  const cookieConfigs = [];
+  const cookieMap = new Map(); // Use Map to deduplicate by cookie name
   const cookieConfigPrefix = 'SUBSET_';
   const cookieConfigSuffix = '_COOKIES';
   
@@ -386,18 +413,21 @@ function getAllCookieConfigs() {
       if (cookiesStr) {
         cookiesStr.split(',').forEach(cookieName => {
           const name = cookieName.trim();
-          const envCookieName = name.replace(/-/g, '_');
-          cookieConfigs.push({
-            cookieName: name,
-            domain: process.env[`JWT_DOMAIN_${envCookieName}`] || process.env.JWT_DEFAULT_DOMAIN,
-            path: process.env[`JWT_PATH_${envCookieName}`] || '/'
-          });
+          // Only add if not already in the map (avoid duplicates)
+          if (!cookieMap.has(name)) {
+            const cookieEnvKey = name.replace(/-/g, '_');
+            cookieMap.set(name, {
+              cookieName: name,
+              domain: process.env[`JWT_DOMAIN_${cookieEnvKey}`] || process.env.JWT_DEFAULT_DOMAIN,
+              path: process.env[`JWT_PATH_${cookieEnvKey}`] || '/'
+            });
+          }
         });
       }
     }
   });
   
-  return cookieConfigs;
+  return Array.from(cookieMap.values());
 }
 
 // Error handling

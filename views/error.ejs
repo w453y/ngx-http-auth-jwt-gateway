@@ -16,7 +16,7 @@
             </div>
             <h1><%= message %></h1>
             
-            <% if (error && error.stack && process.env.NODE_ENV === 'development') { %>
+            <% if (error && error.stack) { %>
                 <pre class="error-stack"><%= error.stack %></pre>
             <% } %>
             
