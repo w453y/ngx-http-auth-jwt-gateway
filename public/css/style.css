@@ -117,6 +117,20 @@ h1 {
     background: #e8eaed;
 }
 
+/* Focus indicators for keyboard accessibility */
+.btn:focus-visible,
+.btn-google:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(66, 133, 244, 0.4);
+}
+
+a:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
 .google-icon {
     width: 20px;
     height: 20px;
