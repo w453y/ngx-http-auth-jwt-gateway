@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access Denied - Auth Gateway</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="logo error-icon">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                    <path d="M15 9L9 15M9 9L15 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </div>
+            <h1>Access Denied</h1>
+            <p class="subtitle">This email is not authorized</p>
+            
+            <div class="email-display">
+                <strong><%= email %></strong>
+            </div>
+            
+            <p class="description">
+                The email address you signed in with is not authorized to access this application.
+                <% if (typeof supportEmail !== 'undefined' && supportEmail) { %>
+                    Please contact your administrator at <a href="mailto:<%= supportEmail %>"><%= supportEmail %></a> for access.
+                <% } else { %>
+                    Please contact your administrator if you believe this is an error.
+                <% } %>
+            </p>
+            
+            <div class="actions">
+                <a href="/try-different-account" class="btn btn-primary">
+                    Try a different account
+                </a>
+                
+                <a href="/logout" class="btn btn-secondary">
+                    Sign out
+                </a>
+            </div>
+            
+            <% if (returnUrl) { %>
+                <p class="return-notice">
+                    Original destination: <code><%= returnUrl %></code>
+                </p>
+            <% } %>
+        </div>
+        
+        <footer>
+            <p>Secure authentication powered by JWT</p>
+        </footer>
+    </div>
+</body>
+</html>

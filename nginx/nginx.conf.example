@@ -1,0 +1,191 @@
+# Example NGINX configuration with ngx-http-auth-jwt-module
+# 
+# This configuration demonstrates how to use the auth gateway with NGINX
+# to protect your applications with JWT authentication.
+#
+# Prerequisites:
+# - NGINX compiled with ngx-http-auth-jwt-module
+# - The auth-jwt-gateway application running at auth.example.com
+
+user nginx;
+worker_processes auto;
+
+error_log /var/log/nginx/error.log notice;
+pid /var/run/nginx.pid;
+
+# Load the JWT module
+load_module /usr/lib64/nginx/modules/ngx_http_auth_jwt_module.so;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+    
+    access_log /var/log/nginx/access.log main;
+
+    sendfile on;
+    keepalive_timeout 65;
+
+    # ============================================
+    # JWT Authentication Settings (Global)
+    # ============================================
+    # These settings apply to all servers unless overridden
+    
+    # The JWT secret key in hex (binhex) format, NOT the raw string.
+    # 
+    # Option 1: Generate a new random hex secret (recommended):
+    #   openssl rand -hex 32
+    # 
+    # Option 2: If you have an existing JWT_SECRET string in your auth gateway .env,
+    # convert it to hex for NGINX:
+    #   printf '%s' "your-jwt-secret" | xxd -p | tr -d '\n'
+    # 
+    # Then copy the resulting hex string into auth_jwt_key below.
+    #
+    # IMPORTANT: The auth gateway and NGINX must use the same secret!
+    # WARNING: You MUST replace the placeholder value below with your actual
+    #          hex-encoded secret key that corresponds to the JWT_SECRET used
+    #          by your auth gateway. If this value is not updated correctly,
+    #          NGINX will fail to validate tokens and all authenticated
+    #          requests will be rejected.
+    # PLACEHOLDER - Replace with your actual hex-encoded secret!
+    auth_jwt_key 'REPLACE_ME_WITH_YOUR_HEX_SECRET';
+    
+    # Use HS256 algorithm (must match auth gateway)
+    auth_jwt_algorithm HS256;
+    
+    # Look for JWT in the auth-token cookie
+    auth_jwt_location 'COOKIE=auth-token';
+    
+    # Enable redirect to login page on auth failure
+    auth_jwt_redirect on;
+    
+    # The login URL - points to your auth gateway
+    auth_jwt_loginurl 'https://auth.example.com';
+
+    # ============================================
+    # Auth Gateway Server
+    # ============================================
+    # This server hosts the authentication gateway.
+    #
+    # SECURITY WARNING:
+    # - This example server listens on HTTP (port 80) for simplicity and
+    #   local/testing use only.
+    # - In PRODUCTION you MUST serve auth.example.com over HTTPS with TLS
+    #   (for example, using "listen 443 ssl;" and proper certificates, or
+    #   terminating TLS in a trusted reverse proxy in front of NGINX).
+    # - Do NOT transmit credentials or JWTs over plain HTTP on the public
+    #   Internet.
+    server {
+        listen 80;
+        server_name auth.example.com;
+
+        # No JWT authentication needed for the auth server itself
+        auth_jwt_enabled off;
+
+        location / {
+            proxy_pass http://auth-gateway:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_cache_bypass $http_upgrade;
+        }
+    }
+
+    # ============================================
+    # Protected Application 1
+    # ============================================
+    # Example of a protected application
+    server {
+        listen 80;
+        server_name app1.example.com;
+
+        # Enable JWT authentication
+        auth_jwt_enabled on;
+        
+        # Extract claims to make them available as variables
+        auth_jwt_extract_var_claims sub email name;
+
+        location / {
+            # Your upstream application
+            proxy_pass http://upstream-app1:8080;
+            
+            # Pass JWT claims as headers to the upstream
+            proxy_set_header X-User-ID $jwt_claim_sub;
+            proxy_set_header X-User-Email $jwt_claim_email;
+            proxy_set_header X-User-Name $jwt_claim_name;
+            
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Health check endpoint - no auth required
+        location /health {
+            auth_jwt_enabled off;
+            return 200 'OK';
+            add_header Content-Type text/plain;
+        }
+    }
+
+    # ============================================
+    # Protected Application 2 (Different Cookie)
+    # ============================================
+    # Example using a different JWT cookie
+    server {
+        listen 80;
+        server_name admin.example.com;
+
+        # Enable JWT authentication
+        auth_jwt_enabled on;
+        
+        # Use admin-token cookie instead
+        auth_jwt_location 'COOKIE=admin-token';
+        
+        # Different login URL for admin portal
+        auth_jwt_loginurl 'https://auth.example.com?type=admin';
+
+        location / {
+            proxy_pass http://upstream-admin:8080;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+
+    # ============================================
+    # Public Application (No Auth)
+    # ============================================
+    # Example of a public application
+    server {
+        listen 80;
+        server_name public.example.com;
+
+        # Disable JWT authentication
+        auth_jwt_enabled off;
+
+        location / {
+            proxy_pass http://upstream-public:8080;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}
