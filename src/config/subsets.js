@@ -88,8 +88,7 @@ function parseAdditionalClaims(claimsStr) {
         claims[key] = true;
       } else if (value === 'false') {
         claims[key] = false;
-      } else if (value !== '' && !isNaN(Number(value))) {
-        // Check for non-empty string before numeric conversion to avoid empty string becoming 0
+      } else if (!isNaN(Number(value))) {
         claims[key] = Number(value);
       } else {
         claims[key] = value;
