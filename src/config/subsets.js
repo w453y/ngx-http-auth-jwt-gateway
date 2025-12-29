@@ -88,10 +88,14 @@ function parseAdditionalClaims(claimsStr) {
         claims[key] = true;
       } else if (value === 'false') {
         claims[key] = false;
-      } else if (!isNaN(Number(value))) {
-        claims[key] = Number(value);
       } else {
-        claims[key] = value;
+        // More robust numeric parsing - verify the string representation matches
+        const num = Number(value);
+        if (!Number.isNaN(num) && String(num) === value) {
+          claims[key] = num;
+        } else {
+          claims[key] = value;
+        }
       }
     }
   });
