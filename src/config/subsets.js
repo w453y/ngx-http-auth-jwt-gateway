@@ -145,6 +145,7 @@ function getCookieConfigForSubset(subsetName) {
   }
   
   // Valid expiresIn format patterns (e.g., '24h', '7d', '30m', '3600', '1y')
+  // Note: Plain numbers without a unit suffix (e.g., '3600') are interpreted as seconds by jsonwebtoken
   const validExpiresInPattern = /^(\d+)(s|m|h|d|w|y)?$/i;
   
   return cookieNames.map(cookieName => {

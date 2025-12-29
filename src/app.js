@@ -368,7 +368,7 @@ app.get('/process-auth', strictAuthLimiter, (req, res) => {
 });
 
 // Try with different account
-app.get('/try-different-account', (req, res) => {
+app.get('/try-different-account', strictAuthLimiter, (req, res) => {
   // Save return_url before logout (preserve it before any async operations)
   const savedReturnUrl = req.session.return_url;
   
@@ -395,7 +395,7 @@ app.get('/try-different-account', (req, res) => {
 });
 
 // Logout
-app.get('/logout', (req, res) => {
+app.get('/logout', strictAuthLimiter, (req, res) => {
   // Clear all JWT cookies with proper options
   const allCookieConfigs = getAllCookieConfigs();
   allCookieConfigs.forEach(config => {
