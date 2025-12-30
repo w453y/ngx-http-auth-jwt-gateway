@@ -56,8 +56,8 @@ http {
     #          by your auth gateway. If this value is not updated correctly,
     #          NGINX will fail to validate tokens and all authenticated
     #          requests will be rejected.
-    # PLACEHOLDER - Replace with your actual hex-encoded secret!
-    auth_jwt_key 'REPLACE_ME_WITH_YOUR_HEX_SECRET';
+    # DO NOT USE THIS PLACEHOLDER IN PRODUCTION!
+    auth_jwt_key 'PLACEHOLDER_REPLACE_WITH_YOUR_ACTUAL_HEX_SECRET';
     
     # Use HS256 algorithm (must match auth gateway)
     auth_jwt_algorithm HS256;
