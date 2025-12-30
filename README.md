@@ -174,7 +174,7 @@ Key directives for `ngx_http_auth_jwt_module`:
 
 ```nginx
 # Load the module
-load_module /usr/lib/nginx/modules/ngx_http_auth_jwt_module.so;
+load_module modules/ngx_http_auth_jwt_module.so;
 
 http {
     # JWT secret (hex-encoded)

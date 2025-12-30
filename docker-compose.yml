@@ -43,10 +43,14 @@ services:
     restart: unless-stopped
     networks:
       - auth-network
-    volumes:
-      - ./demo-app-html:/usr/share/nginx/html:ro
     command: >
-      /bin/sh -c "echo '<html><body><h1>Protected App</h1><p>If you can see this, JWT authentication works!</p></body></html>' > /usr/share/nginx/html/index.html && nginx -g 'daemon off;'"
+      /bin/sh -c "
+      echo '<html><head><title>Protected App</title></head><body>
+      <h1>Protected Application</h1>
+      <p>✅ If you can see this page, JWT authentication is working correctly!</p>
+      <p>Your request passed through NGINX JWT validation.</p>
+      </body></html>' > /usr/share/nginx/html/index.html && 
+      nginx -g 'daemon off;'"
 
 networks:
   auth-network:
